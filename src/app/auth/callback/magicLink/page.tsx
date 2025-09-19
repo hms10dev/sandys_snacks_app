@@ -7,41 +7,38 @@ export default function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState("Processing...");
+  const typeParam = searchParams.get("type");
 
   useEffect(() => {
-    handleCallback();
-  }, []);
+    const runCallback = async () => {
+      try {
+        if (typeParam === "recovery") {
+          setStatus(
+            "Password reset confirmed! You can now sign in with your new password."
+          );
+          setTimeout(() => router.push("/join"), 2000);
+          return;
+        }
 
-  const handleCallback = async () => {
-    try {
-      // Check if this is a password reset
-      const type = searchParams.get("type");
+        const { error } = await supabase.auth.getSession();
 
-      if (type === "recovery") {
-        setStatus(
-          "Password reset confirmed! You can now sign in with your new password."
-        );
-        setTimeout(() => router.push("/join"), 2000);
-        return;
-      }
+        if (error) {
+          setStatus(`Error: ${error.message}`);
+          setTimeout(() => router.push("/join"), 3000);
+          return;
+        }
 
-      // Handle regular auth callback
-      const { error } = await supabase.auth.getSession();
-
-      if (error) {
-        setStatus(`Error: ${error.message}`);
+        setStatus("Success! Redirecting...");
+        setTimeout(() => router.push("/dashboard"), 1000);
+      } catch (err: unknown) {
+        console.error("Callback error:", err);
+        setStatus("Something went wrong. Redirecting to login...");
         setTimeout(() => router.push("/join"), 3000);
-        return;
       }
+    };
 
-      setStatus("Success! Redirecting...");
-      setTimeout(() => router.push("/dashboard"), 1000);
-    } catch (err: any) {
-      console.error("Callback error:", err);
-      setStatus("Something went wrong. Redirecting to login...");
-      setTimeout(() => router.push("/join"), 3000);
-    }
-  };
+    void runCallback();
+  }, [router, typeParam]);
 
   return (
     <div className="min-h-screen bg-orange-50 flex items-center justify-center p-4">

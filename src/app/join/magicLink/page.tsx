@@ -3,10 +3,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
 
 export default function JoinPage() {
-  const router = useRouter();
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -102,7 +100,7 @@ export default function JoinPage() {
           authError.message.includes("valid email")
         ) {
           throw new Error(
-            "That doesn't look like a valid email address. Mind double-checking?"
+            "That doesn’t look like a valid email address. Mind double-checking?"
           );
         } else if (
           authError.message.includes("network") ||
@@ -116,7 +114,7 @@ export default function JoinPage() {
         }
       }
 
-      // Store profile data as backup (in case user metadata doesn't work)
+      // Store profile data as backup (in case user metadata doesn’t work)
       try {
         localStorage.setItem(
           "pendingProfile",
@@ -153,7 +151,7 @@ export default function JoinPage() {
   async function handleResendEmail() {
     if (resendCount >= 3) {
       setError(
-        "You've reached the resend limit. Please wait 10 minutes before trying again."
+        "You’ve reached the resend limit. Please wait 10 minutes before trying again."
       );
       return;
     }
@@ -179,12 +177,12 @@ export default function JoinPage() {
           </h1>
           <p className="text-gray-600 mb-6">
             Check your email at <strong>{formData.email}</strong> for your magic
-            link to Sandy's Snacks!
+            link to Sandy’s Snacks!
           </p>
 
           <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
             <p className="text-sm text-orange-800">
-              <strong>Pro tip:</strong> Check your spam folder if you don't see
+              <strong>Pro tip:</strong> Check your spam folder if you don’t see
               it in a few minutes.
             </p>
           </div>
@@ -233,7 +231,7 @@ export default function JoinPage() {
         <div className="text-center mb-8">
           <div className="text-4xl mb-4">🍪</div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Join Sandy's Snacks
+            Join Sandy’s Snacks
           </h1>
           <p className="text-gray-600">
             Ready for expertly curated office treats?

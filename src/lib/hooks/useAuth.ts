@@ -1,139 +1,198 @@
-'use client'
-import { useEffect, useState } from 'react'
-import { User } from '@supabase/supabase-js'
-import { supabase } from '../supabase'
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "../supabase";
+
+type Profile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  dietary_preferences: string | null;
+  role: string | null;
+};
+
+type PendingProfile = {
+  full_name?: string;
+  dietary_preferences?: string | null;
+};
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const profilePromiseRef = useRef<Promise<void> | null>(null);
+  const isMountedRef = useRef(true);
+
+  const handleError = useCallback((message: string, err: unknown) => {
+    console.error("[useAuth]", message, err);
+    if (!isMountedRef.current) return;
+    setError(message);
+  }, []);
+
+  const readPendingProfile = useCallback((): PendingProfile | null => {
+    try {
+      const storedData = localStorage.getItem("pendingProfile");
+      if (!storedData) return null;
+
+      localStorage.removeItem("pendingProfile");
+      return JSON.parse(storedData) as PendingProfile;
+    } catch (err) {
+      console.warn("[useAuth] Unable to read pending profile from storage", err);
+      return null;
+    }
+  }, []);
+
+  const loadOrCreateProfile = useCallback(
+    async (currentUser: User) => {
+      try {
+        const {
+          data: existingProfile,
+          error: selectError,
+        } = await supabase
+          .from("profiles")
+          .select("id, email, full_name, dietary_preferences, role")
+          .eq("id", currentUser.id)
+          .maybeSingle();
+
+        if (selectError) {
+          throw selectError;
+        }
+
+        if (existingProfile) {
+          if (isMountedRef.current) {
+            setProfile(existingProfile as Profile);
+            setError(null);
+          }
+          return;
+        }
+
+        const pendingProfile = readPendingProfile();
+
+        const profilePayload = {
+          id: currentUser.id,
+          email: currentUser.email ?? "",
+          full_name:
+            pendingProfile?.full_name?.trim() ||
+            currentUser.user_metadata?.full_name ||
+            currentUser.email?.split("@")[0] ||
+            "Snack Lover",
+          dietary_preferences:
+            pendingProfile?.dietary_preferences ??
+            (currentUser.user_metadata?.dietary_preferences as string | null) ??
+            null,
+        };
+
+        const {
+          data: newProfile,
+          error: upsertError,
+        } = await supabase
+          .from("profiles")
+          .upsert(profilePayload, { onConflict: "id" })
+          .select()
+          .single();
+
+        if (upsertError) {
+          throw upsertError;
+        }
+
+        if (isMountedRef.current) {
+          setProfile(newProfile as Profile);
+          setError(null);
+        }
+      } catch (err) {
+        handleError(
+          "We couldn’t load your profile. Please refresh the page and try again.",
+          err
+        );
+      }
+    },
+    [handleError, readPendingProfile]
+  );
+
+  const syncSession = useCallback(
+    async (nextUser: User | null) => {
+      if (!isMountedRef.current) return;
+
+      setUser(nextUser);
+
+      if (!nextUser) {
+        setProfile(null);
+        setError(null);
+        return;
+      }
+
+      if (profilePromiseRef.current) {
+        await profilePromiseRef.current;
+        return;
+      }
+
+      const profilePromise = loadOrCreateProfile(nextUser);
+      profilePromiseRef.current = profilePromise;
+
+      try {
+        await profilePromise;
+      } finally {
+        profilePromiseRef.current = null;
+      }
+    },
+    [loadOrCreateProfile]
+  );
 
   useEffect(() => {
-    getUser()
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.id)
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          await loadOrCreateProfile(session.user)
-        } else {
-          setProfile(null)
-        }
-        setLoading(false)
-      }
-    )
+    isMountedRef.current = true;
 
-    return () => subscription.unsubscribe()
-  }, [])
-
-  async function getUser() {
-    const { data: { session } } = await supabase.auth.getSession()
-    console.log('Initial session:', session?.user?.id)
-    setUser(session?.user ?? null)
-    if (session?.user) {
-      await loadOrCreateProfile(session.user)
-    }
-    setLoading(false)
-  }
-
-  async function loadOrCreateProfile(user: User) {
-    console.log('Loading profile for user:', user.id)
-    
-    try {
-      // First, try to load existing profile
-      const { data: existingProfile, error: selectError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle()
-      
-      console.log('Profile query result:', {
-        data: existingProfile,
-        error: selectError,
-        errorCode: selectError?.code,
-        errorMessage: selectError?.message,
-        errorDetails: selectError?.details
-      })
-      
-      // If we found an existing profile, use it
-      if (existingProfile) {
-        setProfile(existingProfile)
-        return
-      }
-
-      // If there was an error other than "no rows found", log and return
-      if (selectError) {
-        console.error('Error loading profile - Code:', selectError.code, 'Message:', selectError.message)
-        console.error('Full error object:', JSON.stringify(selectError, null, 2))
-        return
-      }
-
-      // If no profile exists and no error, create one
-      console.log('No existing profile found, creating new profile for:', user.email)
-      
-      // Check for pending profile data from the join form
-      let pendingProfile = null
+    const initialiseSession = async () => {
+      setLoading(true);
       try {
-        const storedData = localStorage.getItem('pendingProfile')
-        if (storedData) {
-          pendingProfile = JSON.parse(storedData)
-          console.log('Found pending profile data:', pendingProfile)
-          // Clear it after reading
-          localStorage.removeItem('pendingProfile')
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          throw sessionError;
         }
-      } catch (error) {
-        console.error('Error reading pending profile:', error)
+
+        await syncSession(session?.user ?? null);
+      } catch (err) {
+        handleError(
+          "We couldn’t verify your session. Please sign in again.",
+          err
+        );
+        await syncSession(null);
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
+    };
 
-      // Use pending profile data if available, otherwise fallback to user metadata
-      const profileData = {
-        id: user.id,
-        email: user.email || '',
-        full_name: pendingProfile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-        dietary_preferences: pendingProfile?.dietary_preferences || null,
+    void initialiseSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_, session) => {
+      if (!isMountedRef.current) return;
+      setLoading(true);
+      await syncSession(session?.user ?? null);
+      if (isMountedRef.current) {
+        setLoading(false);
       }
+    });
 
-      console.log('Attempting to create profile with data:', profileData)
+    return () => {
+      isMountedRef.current = false;
+      subscription.unsubscribe();
+    };
+  }, [handleError, syncSession]);
 
-      const { data: newProfile, error: insertError } = await supabase
-        .from('profiles')
-        .insert(profileData)
-        .select()
-        .single()
-
-      console.log('Profile creation result:', {
-        data: newProfile,
-        error: insertError,
-        errorCode: insertError?.code,
-        errorMessage: insertError?.message,
-        errorDetails: insertError?.details
-      })
-
-      if (insertError) {
-        console.error('Profile creation failed - Code:', insertError.code, 'Message:', insertError.message)
-        console.error('Full insert error:', JSON.stringify(insertError, null, 2))
-        return
-      }
-      
-      if (newProfile) {
-        setProfile(newProfile)
-        console.log('Profile created successfully:', newProfile)
-      } else {
-        console.error('Profile creation returned no data and no error - unexpected state')
-      }
-
-    } catch (error) {
-      console.error('Unexpected error in loadOrCreateProfile:', error)
-      console.error('Error type:', typeof error)
-      console.error('Error stringified:', JSON.stringify(error, null, 2))
-    }
-  }
-
-  return { 
-    user, 
-    loading, 
-    profile, 
-    isAdmin: profile?.role === 'admin' 
-  }
+  return {
+    user,
+    loading,
+    profile,
+    error,
+    isAdmin: profile?.role === "admin",
+  };
 }

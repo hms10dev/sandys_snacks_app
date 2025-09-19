@@ -40,8 +40,12 @@ export default function AuthPage() {
       } else {
         router.push("/dashboard");
       }
-    } catch (error: any) {
-      setError(error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Something went wrong. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -53,7 +57,7 @@ export default function AuthPage() {
     setError(null);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: formData.email.trim(),
         password: formData.password,
       });
@@ -61,8 +65,12 @@ export default function AuthPage() {
       if (error) throw error;
 
       router.push("/dashboard");
-    } catch (error: any) {
-      setError(error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Something went wrong. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -97,7 +105,7 @@ export default function AuthPage() {
         <div className="text-center mb-8">
           <div className="text-4xl mb-4">🍪</div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            {isSignUp ? "Join Sandy's Snacks" : "Welcome Back"}
+            {isSignUp ? "Join Sandy’s Snacks" : "Welcome Back"}
           </h1>
           <p className="text-gray-600">
             {isSignUp
