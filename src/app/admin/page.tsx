@@ -5,6 +5,14 @@ import Image from "next/image";
 import LoadingState from "@/components/LoadingState";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
+import {
+  SNACK_REQUEST_STATUS_BADGE_CLASSES,
+  SNACK_REQUEST_STATUS_LABELS,
+  SNACK_REQUEST_STATUSES,
+  SNACK_REQUEST_STATUS_SHORT_LABELS,
+  type SnackRequestStatus,
+  type SnackRequestWithProfile,
+} from "@/lib/snackRequests";
 
 type AdminUser = {
   id: string;
@@ -29,6 +37,84 @@ type Snack = {
   created_at: string;
 };
 
+type SnackRequestResponse = {
+  data: SnackRequestWithProfile[];
+};
+
+type SnackRequestUpdateResponse = {
+  data: SnackRequestWithProfile;
+};
+
+const REQUEST_FILTER_OPTIONS: (SnackRequestStatus | "all")[] = [
+  "all",
+  ...SNACK_REQUEST_STATUSES,
+];
+
+const REQUEST_FILTER_LABELS: Record<SnackRequestStatus | "all", string> = {
+  all: "All",
+  pending: SNACK_REQUEST_STATUS_SHORT_LABELS.pending,
+  accepted: SNACK_REQUEST_STATUS_SHORT_LABELS.accepted,
+  fulfilled: SNACK_REQUEST_STATUS_SHORT_LABELS.fulfilled,
+  declined: SNACK_REQUEST_STATUS_SHORT_LABELS.declined,
+};
+
+type RequestAction = {
+  label: string;
+  status: SnackRequestStatus;
+  style: string;
+};
+
+const REQUEST_ACTIONS: Record<SnackRequestStatus, RequestAction[]> = {
+  pending: [
+    {
+      label: "Mark accepted",
+      status: "accepted",
+      style: "bg-green-100 text-green-700 hover:bg-green-200",
+    },
+    {
+      label: "Mark fulfilled",
+      status: "fulfilled",
+      style: "bg-blue-100 text-blue-700 hover:bg-blue-200",
+    },
+    {
+      label: "Decline",
+      status: "declined",
+      style: "bg-red-100 text-red-600 hover:bg-red-200",
+    },
+  ],
+  accepted: [
+    {
+      label: "Mark fulfilled",
+      status: "fulfilled",
+      style: "bg-blue-100 text-blue-700 hover:bg-blue-200",
+    },
+    {
+      label: "Move to pending",
+      status: "pending",
+      style: "bg-yellow-100 text-yellow-700 hover:bg-yellow-200",
+    },
+    {
+      label: "Decline",
+      status: "declined",
+      style: "bg-red-100 text-red-600 hover:bg-red-200",
+    },
+  ],
+  fulfilled: [
+    {
+      label: "Reopen request",
+      status: "pending",
+      style: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+    },
+  ],
+  declined: [
+    {
+      label: "Reopen request",
+      status: "pending",
+      style: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+    },
+  ],
+};
+
 export default function AdminPanel() {
   const {
     user,
@@ -40,6 +126,9 @@ export default function AdminPanel() {
   const [isClient, setIsClient] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [snacks, setSnacks] = useState<Snack[]>([]);
+  const [snackRequests, setSnackRequests] = useState<SnackRequestWithProfile[]>([]);
+  const [requestFilter, setRequestFilter] = useState<SnackRequestStatus | "all">("pending");
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -65,6 +154,13 @@ export default function AdminPanel() {
       setDataError(null);
 
       try {
+        const requestsPromise = fetch(
+          "/api/snack-requests?status=pending,accepted,fulfilled,declined",
+          {
+            cache: "no-store",
+          }
+        );
+
         const [profilesResult, paymentsResult, snacksResult] = await Promise.all([
           supabase
             .from("profiles")
@@ -80,12 +176,24 @@ export default function AdminPanel() {
             .order("created_at", { ascending: false }),
         ]);
 
+        const requestsResponse = await requestsPromise;
+        const requestsBody = (await requestsResponse.json().catch(() => null)) as
+          | (SnackRequestResponse & { error?: string })
+          | { error?: string }
+          | null;
+
         const { data: profiles, error: profilesError } = profilesResult;
         const { data: payments, error: paymentsError } = paymentsResult;
         const { data: snacksData, error: snacksError } = snacksResult;
 
         if (profilesError || paymentsError || snacksError) {
           throw profilesError || paymentsError || snacksError;
+        }
+
+        if (!requestsResponse.ok) {
+          throw new Error(
+            requestsBody?.error || "We couldn’t load the latest snack requests."
+          );
         }
 
         const usersWithPayments =
@@ -96,6 +204,7 @@ export default function AdminPanel() {
 
         setUsers(usersWithPayments);
         setSnacks(snacksData ?? []);
+        setSnackRequests((requestsBody?.data ?? []) as SnackRequestWithProfile[]);
       } catch (err) {
         console.error("[admin] Failed to refresh data", err);
         setDataError("We couldn’t load the latest admin data. Please try refreshing.");
@@ -119,6 +228,17 @@ export default function AdminPanel() {
   const paidMembers = users.filter((person) => person.paymentStatus?.paid).length;
   const pendingMembers = Math.max(totalMembers - paidMembers, 0);
   const paymentRate = totalMembers ? Math.round((paidMembers / totalMembers) * 100) : 0;
+  const totalRequests = snackRequests.length;
+  const pendingRequestsCount = useMemo(
+    () => snackRequests.filter((request) => request.status === "pending").length,
+    [snackRequests]
+  );
+  const filteredRequests = useMemo(() => {
+    if (requestFilter === "all") {
+      return snackRequests;
+    }
+    return snackRequests.filter((request) => request.status === requestFilter);
+  }, [snackRequests, requestFilter]);
 
   if (!isClient || authLoading) {
     return (
@@ -195,6 +315,51 @@ export default function AdminPanel() {
         message="Grabbing member info, payments, and the latest treats."
       />
     );
+  }
+
+  async function updateRequestStatus(
+    requestId: string,
+    nextStatus: SnackRequestStatus
+  ) {
+    setDataError(null);
+    setUpdatingRequestId(requestId);
+
+    try {
+      const response = await fetch(`/api/snack-requests/${requestId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      const body = (await response.json().catch(() => null)) as
+        | (SnackRequestUpdateResponse & { error?: string })
+        | { error?: string }
+        | null;
+
+      if (!response.ok || !body || !("data" in body)) {
+        throw new Error(
+          (body as { error?: string } | null)?.error ||
+            "We couldn’t update that request. Please try again."
+        );
+      }
+
+      const updatedRequest = (body as SnackRequestUpdateResponse).data;
+
+      setSnackRequests((previous) =>
+        previous.map((request) =>
+          request.id === requestId ? updatedRequest : request
+        )
+      );
+    } catch (err) {
+      console.error("[admin] Failed to update snack request", err);
+      setDataError(
+        err instanceof Error
+          ? err.message
+          : "We couldn’t update that request. Please try again."
+      );
+    } finally {
+      setUpdatingRequestId(null);
+    }
   }
 
   async function togglePayment(userId: string, currentPaid: boolean) {
@@ -310,7 +475,7 @@ export default function AdminPanel() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl bg-white p-6 shadow-sm">
             <p className="text-sm font-medium text-gray-500">Active members</p>
             <p className="mt-2 text-3xl font-bold text-gray-900">{totalMembers}</p>
@@ -328,6 +493,11 @@ export default function AdminPanel() {
             <p className="mt-2 text-3xl font-bold text-gray-900">{snacks.length}</p>
             <p className="text-sm text-gray-500 mt-1">Uploaded treats available to members</p>
           </div>
+          <div className="rounded-2xl bg-white p-6 shadow-sm">
+            <p className="text-sm font-medium text-gray-500">Pending snack ideas</p>
+            <p className="mt-2 text-3xl font-bold text-gray-900">{pendingRequestsCount}</p>
+            <p className="text-sm text-gray-500 mt-1">{totalRequests} total submissions</p>
+          </div>
         </div>
 
         {dataError && (
@@ -335,6 +505,121 @@ export default function AdminPanel() {
             {dataError}
           </div>
         )}
+
+        <div className="rounded-2xl bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Snack requests</h2>
+              <p className="text-sm text-gray-500">
+                Review member submissions and keep everyone updated on their status.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {REQUEST_FILTER_OPTIONS.map((option) => {
+                const isActive = requestFilter === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setRequestFilter(option)}
+                    className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+                      isActive
+                        ? "bg-orange-500 text-white shadow"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {REQUEST_FILTER_LABELS[option]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            {filteredRequests.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                {snackRequests.length === 0
+                  ? "No snack requests submitted yet."
+                  : "No snack requests match this filter."}
+              </p>
+            ) : (
+              filteredRequests.map((request) => {
+                const isUpdating = updatingRequestId === request.id;
+                const actions = REQUEST_ACTIONS[request.status];
+
+                return (
+                  <div
+                    key={request.id}
+                    className="rounded-xl border border-gray-200 p-4 space-y-3"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <p className="text-lg font-semibold text-gray-900">
+                            {request.snack_name}
+                          </p>
+                          <span
+                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${SNACK_REQUEST_STATUS_BADGE_CLASSES[request.status]}`}
+                          >
+                            {SNACK_REQUEST_STATUS_LABELS[request.status]}
+                          </span>
+                        </div>
+                        {request.requester && (
+                          <p className="text-sm text-gray-500 mt-2">
+                            Submitted by {request.requester.full_name || "Unknown member"}
+                            {request.requester.email
+                              ? ` • ${request.requester.email}`
+                              : ""}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-2">
+                          Created {new Date(request.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    {request.details && (
+                      <p className="text-sm text-gray-600 whitespace-pre-line">
+                        {request.details}
+                      </p>
+                    )}
+                    {request.source && (
+                      <p className="text-xs text-gray-500">
+                        <span className="font-medium text-gray-700">Where to find it:</span> {" "}
+                        {request.source}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {actions.map((action) => (
+                        <button
+                          key={`${request.id}-${action.status}`}
+                          type="button"
+                          onClick={() => updateRequestStatus(request.id, action.status)}
+                          disabled={isUpdating}
+                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${
+                            action.style
+                          } ${
+                            isUpdating
+                              ? "cursor-not-allowed opacity-60"
+                              : "hover:shadow-sm"
+                          }`}
+                        >
+                          {isUpdating ? (
+                            <>
+                              <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" />
+                              Updating...
+                            </>
+                          ) : (
+                            action.label
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr,3fr]">
           <div className="space-y-8">
