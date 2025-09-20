@@ -34,3 +34,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Snack request workflow
+
+- Authenticated members can visit `/requests` to submit snack ideas and track the status of their previous suggestions.
+- Admins review, filter, and update those submissions from the `/admin` panel.
+- Snack requests are stored in the `snack_requests` table. Apply the SQL in `supabase/migrations/20240227000000_create_snack_requests.sql` to your Supabase instance to provision the table and indexes before using the new flow.
