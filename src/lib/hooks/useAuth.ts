@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 
-type Profile = {
+export type Profile = {
   id: string;
   email: string;
   full_name: string | null;
@@ -140,6 +140,15 @@ export function useAuth() {
     [loadOrCreateProfile]
   );
 
+  const setProfileData = useCallback(
+    (nextProfile: Profile | null) => {
+      if (!isMountedRef.current) return;
+      setProfile(nextProfile);
+      setError(null);
+    },
+    [setError, setProfile]
+  );
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -194,5 +203,6 @@ export function useAuth() {
     profile,
     error,
     isAdmin: profile?.role === "admin",
+    setProfileData,
   };
 }
