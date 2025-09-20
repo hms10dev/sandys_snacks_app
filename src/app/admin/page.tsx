@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import LoadingState from "@/components/LoadingState";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { signOut, useAuth } from "@/lib/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 
 type AdminUser = {
@@ -30,6 +31,7 @@ type Snack = {
 };
 
 export default function AdminPanel() {
+  const router = useRouter();
   const {
     user,
     loading: authLoading,
@@ -44,6 +46,7 @@ export default function AdminPanel() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const currentMonthDate = useMemo(
@@ -278,6 +281,18 @@ export default function AdminPanel() {
     }
   }
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.push("/join");
+    } catch (err) {
+      console.error("[admin] Sign out failed", err);
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -291,23 +306,33 @@ export default function AdminPanel() {
               Manage members, keep payments in sync, and spotlight the newest treats.
             </p>
           </div>
-          <button
-            onClick={() => refreshAdminData()}
-            className="inline-flex items-center gap-2 self-start rounded-lg border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-orange-200 border-t-orange-500" />
-                Refreshing
-              </>
-            ) : (
-              <>
-                <span aria-hidden>⟳</span>
-                Refresh data
-              </>
-            )}
-          </button>
+          <div className="flex flex-col gap-2 self-start sm:flex-row">
+            <button
+              onClick={() => refreshAdminData()}
+              className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={isRefreshing}
+            >
+              {isRefreshing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-orange-200 border-t-orange-500" />
+                  Refreshing
+                </>
+              ) : (
+                <>
+                  <span aria-hidden>⟳</span>
+                  Refresh data
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {signingOut ? "Signing out..." : "Sign out"}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import LoadingState from "@/components/LoadingState";
-import { useAuth } from "@/lib/hooks/useAuth";
+import { signOut, useAuth } from "@/lib/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 
 type PaymentStatus = {
@@ -22,11 +23,13 @@ type Snack = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
   const { user, loading, profile, error: authError } = useAuth();
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
   const [snacks, setSnacks] = useState<Snack[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -148,14 +151,38 @@ export default function Dashboard() {
     year: "numeric",
   });
 
+  async function handleSignOut() {
+    setSigningOut(true);
+    try {
+      await signOut();
+      router.push("/join");
+    } catch (err) {
+      console.error("[dashboard] Sign out failed", err);
+    } finally {
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-2xl p-8 mb-8 shadow-sm">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {profile?.full_name}! 👋
-          </h1>
-          <p className="text-gray-600">Here’s your snack subscription status</p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Welcome back, {profile?.full_name}! 👋
+              </h1>
+              <p className="text-gray-600">Here’s your snack subscription status</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={signingOut}
+              className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:border-gray-300 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {signingOut ? "Signing out..." : "Sign out"}
+            </button>
+          </div>
         </div>
 
         {dataError && (

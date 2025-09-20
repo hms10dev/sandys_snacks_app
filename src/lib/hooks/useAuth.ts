@@ -4,6 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 
+export async function signOut() {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem("pendingProfile");
+    } catch (err) {
+      console.warn("[useAuth] Unable to clear stored profile data", err);
+    }
+  }
+
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    throw error;
+  }
+}
+
 type Profile = {
   id: string;
   email: string;
