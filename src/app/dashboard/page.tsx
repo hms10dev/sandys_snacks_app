@@ -11,6 +11,10 @@ type PaymentStatus = {
   month: string;
   paid: boolean;
   note?: string | null;
+  paused?: boolean;
+  paused_at?: string | null;
+  canceled?: boolean;
+  canceled_at?: string | null;
 };
 
 type Snack = {
@@ -27,11 +31,21 @@ export default function Dashboard() {
   const [snacks, setSnacks] = useState<Snack[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusUpdatingAction, setStatusUpdatingAction] = useState<
+    "pause" | "cancel" | "reactivate" | null
+  >(null);
 
   useEffect(() => {
     if (!user) {
       setPaymentStatus(null);
       setSnacks([]);
+      setStatusMessage(null);
+      setStatusError(null);
+      setStatusUpdating(false);
+      setStatusUpdatingAction(null);
       return;
     }
 
@@ -47,7 +61,7 @@ export default function Dashboard() {
         const [paymentResult, snacksResult] = await Promise.all([
           supabase
             .from("payments_manual")
-            .select("user_id, month, paid, note")
+            .select("user_id, month, paid, note, paused, paused_at, canceled, canceled_at")
             .eq("user_id", user.id)
             .eq("month", currentMonth)
             .maybeSingle(),
@@ -68,6 +82,9 @@ export default function Dashboard() {
         }
 
         setPaymentStatus(paymentData ?? null);
+        setStatusMessage(null);
+        setStatusError(null);
+        setStatusUpdatingAction(null);
         setSnacks(snacksData ?? []);
       } catch (err) {
         if (!isActive) return;
@@ -142,11 +159,126 @@ export default function Dashboard() {
     );
   }
 
-  const isPaid = paymentStatus?.paid || false;
+  const isCanceled = paymentStatus?.canceled ?? false;
+  const isPaused = paymentStatus?.paused ?? false;
+  const isPaid = !isCanceled && (paymentStatus?.paid ?? false);
+  const pausedSince = paymentStatus?.paused_at
+    ? new Date(paymentStatus.paused_at).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+  const canceledSince = paymentStatus?.canceled_at
+    ? new Date(paymentStatus.canceled_at).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
   const currentMonthLabel = new Date().toLocaleDateString("en-US", {
     month: "long",
     year: "numeric",
   });
+
+  const statusBadge = (() => {
+    if (isCanceled) {
+      return {
+        label: "CANCELED",
+        className: "bg-red-100 text-red-700",
+      };
+    }
+    if (isPaused) {
+      return {
+        label: "PAUSED",
+        className: "bg-blue-100 text-blue-700",
+      };
+    }
+    if (isPaid) {
+      return {
+        label: "PAID",
+        className: "bg-green-100 text-green-800",
+      };
+    }
+    return {
+      label: "PENDING",
+      className: "bg-yellow-100 text-yellow-800",
+    };
+  })();
+
+  const cardAccentClass = isCanceled
+    ? "border-red-500"
+    : isPaused
+      ? "border-blue-500"
+      : isPaid
+        ? "border-green-500"
+        : "border-yellow-500";
+
+  const subscriptionMessage = (() => {
+    if (isCanceled) {
+      return canceledSince
+        ? `You canceled on ${canceledSince}. Reactivate when you’re ready to rejoin the snack squad.`
+        : "You’ve canceled your subscription. Reactivate when you’re ready to rejoin the snack squad.";
+    }
+    if (isPaused) {
+      return pausedSince
+        ? `Your subscription has been paused since ${pausedSince}. We’ll hold your spot until you’re ready.`
+        : "Your subscription is paused. We’ll hold your spot until you’re ready.";
+    }
+    return isPaid
+      ? "You’re all set! Thanks for supporting Sandy’s snack curation."
+      : "Ready to join this month’s snack collection? Send your $5 donation!";
+  })();
+
+  async function handleSubscriptionAction(action: "pause" | "cancel" | "reactivate") {
+    try {
+      setStatusUpdating(true);
+      setStatusError(null);
+      setStatusMessage(null);
+      setStatusUpdatingAction(action);
+
+      const response = await fetch("/api/subscription-status", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action }),
+      });
+
+      const result = (await response.json().catch(() => null)) as {
+        data?: PaymentStatus;
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        const errorMessage = result?.error || "We couldn’t update your subscription.";
+        throw new Error(errorMessage);
+      }
+
+      if (result?.data) {
+        setPaymentStatus(result.data);
+      }
+
+      const successMessages = {
+        pause: "Your subscription is paused. Reactivate whenever you’re ready to snack again.",
+        cancel:
+          "Your subscription has been canceled. You’re welcome back anytime for more treats.",
+        reactivate: "All set! Your subscription is active again.",
+      } as const;
+
+      setStatusMessage(successMessages[action]);
+    } catch (err) {
+      console.error(`[dashboard] Failed to ${action} subscription`, err);
+      setStatusError(
+        err instanceof Error
+          ? err.message
+          : "We couldn’t update your subscription right now. Please try again."
+      );
+    } finally {
+      setStatusUpdating(false);
+      setStatusUpdatingAction(null);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -165,34 +297,78 @@ export default function Dashboard() {
         )}
 
         <div
-          className={`bg-white rounded-2xl p-8 mb-8 shadow-sm border-l-4 ${
-            isPaid ? "border-green-500" : "border-yellow-500"
-          }`}
+          className={`bg-white rounded-2xl p-8 mb-8 shadow-sm border-l-4 ${cardAccentClass}`}
         >
-          <div className="flex justify-between items-start mb-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-xl font-bold text-gray-900">
                 {currentMonthLabel} Subscription
               </h2>
-              <p className="text-gray-600 mt-2">
-                {isPaid
-                  ? "You’re all set! Thanks for supporting Sandy’s snack curation."
-                  : "Ready to join this month’s snack collection? Send your $5 donation!"}
-              </p>
+              <p className="text-gray-600 mt-2">{subscriptionMessage}</p>
             </div>
             <span
-              className={`px-4 py-2 rounded-full text-sm font-medium ${
-                isPaid
-                  ? "bg-green-100 text-green-800"
-                  : "bg-yellow-100 text-yellow-800"
-              }`}
+              className={`px-4 py-2 rounded-full text-sm font-medium ${statusBadge.className}`}
             >
-              {isPaid ? "PAID" : "PENDING"}
+              {statusBadge.label}
             </span>
           </div>
 
-          {!isPaid && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-6">
+          {statusMessage && (
+            <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+              {statusMessage}
+            </div>
+          )}
+
+          {statusError && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {statusError}
+            </div>
+          )}
+
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <h3 className="text-sm font-semibold text-gray-900">Manage your membership</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Need a break or ready to come back? Update your status whenever it suits you.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {!isCanceled && !isPaused && (
+                <button
+                  onClick={() => handleSubscriptionAction("pause")}
+                  disabled={statusUpdating}
+                  className="inline-flex items-center rounded-lg bg-blue-100 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {statusUpdating && statusUpdatingAction === "pause"
+                    ? "Pausing..."
+                    : "Pause membership"}
+                </button>
+              )}
+              {!isCanceled && (
+                <button
+                  onClick={() => handleSubscriptionAction("cancel")}
+                  disabled={statusUpdating}
+                  className="inline-flex items-center rounded-lg bg-red-100 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {statusUpdating && statusUpdatingAction === "cancel"
+                    ? "Canceling..."
+                    : "Cancel subscription"}
+                </button>
+              )}
+              {(isPaused || isCanceled) && (
+                <button
+                  onClick={() => handleSubscriptionAction("reactivate")}
+                  disabled={statusUpdating}
+                  className="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {statusUpdating && statusUpdatingAction === "reactivate"
+                    ? "Reactivating..."
+                    : "Reactivate"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!isCanceled && !isPaid && (
+            <div className="mt-6 rounded-lg border border-orange-200 bg-orange-50 p-6">
               <h3 className="font-medium text-orange-900 mb-2">How to pay:</h3>
               <div className="space-y-2 text-sm text-orange-800">
                 <p>
