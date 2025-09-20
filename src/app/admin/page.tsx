@@ -18,6 +18,10 @@ type AdminUser = {
     month: string;
     paid: boolean;
     note?: string | null;
+    paused?: boolean;
+    paused_at?: string | null;
+    canceled?: boolean;
+    canceled_at?: string | null;
   } | null;
 };
 
@@ -44,6 +48,7 @@ export default function AdminPanel() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [statusUpdatingUser, setStatusUpdatingUser] = useState<string | null>(null);
 
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const currentMonthDate = useMemo(
@@ -72,7 +77,7 @@ export default function AdminPanel() {
             .order("created_at", { ascending: false }),
           supabase
             .from("payments_manual")
-            .select("user_id, month, paid, note")
+            .select("user_id, month, paid, note, paused, paused_at, canceled, canceled_at")
             .eq("month", currentMonth),
           supabase
             .from("snacks")
@@ -224,6 +229,44 @@ export default function AdminPanel() {
     } catch (err) {
       console.error("[admin] Failed to toggle payment", err);
       setDataError("We couldn’t update that payment. Please try again.");
+    }
+  }
+
+  async function updateSubscriptionStatus(
+    userId: string,
+    action: "pause" | "cancel" | "reactivate"
+  ) {
+    setDataError(null);
+    setStatusUpdatingUser(userId);
+
+    try {
+      const response = await fetch("/api/subscription-status", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId, action }),
+      });
+
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        const errorMessage = result?.error || "We couldn’t update that subscription.";
+        throw new Error(errorMessage);
+      }
+
+      await refreshAdminData();
+    } catch (err) {
+      console.error(`[admin] Failed to ${action} subscription`, err);
+      setDataError(
+        err instanceof Error
+          ? err.message
+          : "We couldn’t update that subscription. Please try again."
+      );
+    } finally {
+      setStatusUpdatingUser(null);
     }
   }
 
@@ -469,46 +512,114 @@ export default function AdminPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((person) => (
-                    <tr key={person.id} className="border-b border-gray-100 text-sm">
-                      <td className="py-4 pr-4 align-top">
-                        <div className="font-medium text-gray-900">
-                          {person.full_name || "No name on file"}
-                        </div>
-                        {person.dietary_preferences && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            {person.dietary_preferences}
+                  {users.map((person) => {
+                    const status = person.paymentStatus;
+                    const isCanceled = status?.canceled ?? false;
+                    const isPaused = status?.paused ?? false;
+                    const isPaid = !isCanceled && (status?.paid ?? false);
+                    const statusBadgeClass = isCanceled
+                      ? "bg-red-100 text-red-700"
+                      : isPaused
+                        ? "bg-blue-100 text-blue-700"
+                        : isPaid
+                          ? "bg-green-100 text-green-700"
+                          : "bg-yellow-100 text-yellow-700";
+                    const statusLabel = isCanceled
+                      ? "Canceled"
+                      : isPaused
+                        ? "Paused"
+                        : isPaid
+                          ? "Paid"
+                          : "Pending";
+                    const statusTimestamp = isCanceled
+                      ? status?.canceled_at
+                      : isPaused
+                        ? status?.paused_at
+                        : null;
+                    const statusSubtext = statusTimestamp
+                      ? `${statusLabel === "Canceled" ? "Canceled on" : "Paused since"} ${new Date(
+                          statusTimestamp
+                        ).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}`
+                      : null;
+                    const statusLoading = statusUpdatingUser === person.id;
+
+                    return (
+                      <tr key={person.id} className="border-b border-gray-100 text-sm">
+                        <td className="py-4 pr-4 align-top">
+                          <div className="font-medium text-gray-900">
+                            {person.full_name || "No name on file"}
                           </div>
-                        )}
-                      </td>
-                      <td className="py-4 pr-4 align-top text-gray-600">{person.email}</td>
-                      <td className="py-4 pr-4 align-top">
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            person.paymentStatus?.paid
-                              ? "bg-green-100 text-green-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                        >
-                          {person.paymentStatus?.paid ? "Paid" : "Pending"}
-                        </span>
-                      </td>
-                      <td className="py-4 text-right align-top">
-                        <button
-                          onClick={() =>
-                            togglePayment(person.id, person.paymentStatus?.paid ?? false)
-                          }
-                          className={`inline-flex items-center rounded-lg px-3 py-2 text-xs font-medium transition ${
-                            person.paymentStatus?.paid
-                              ? "bg-red-100 text-red-600 hover:bg-red-200"
-                              : "bg-green-100 text-green-600 hover:bg-green-200"
-                          }`}
-                        >
-                          Mark {person.paymentStatus?.paid ? "unpaid" : "paid"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {person.dietary_preferences && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              {person.dietary_preferences}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-4 pr-4 align-top text-gray-600">{person.email}</td>
+                        <td className="py-4 pr-4 align-top">
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass}`}
+                            >
+                              {statusLabel}
+                            </span>
+                            {statusSubtext && (
+                              <span className="text-[11px] text-gray-500">{statusSubtext}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-4 text-right align-top">
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              onClick={() =>
+                                togglePayment(person.id, person.paymentStatus?.paid ?? false)
+                              }
+                              className={`inline-flex items-center rounded-lg px-3 py-2 text-xs font-medium transition ${
+                                person.paymentStatus?.paid
+                                  ? "bg-red-100 text-red-600 hover:bg-red-200"
+                                  : "bg-green-100 text-green-600 hover:bg-green-200"
+                              }`}
+                            >
+                              Mark {person.paymentStatus?.paid ? "unpaid" : "paid"}
+                            </button>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {!isCanceled && !isPaused && (
+                                <button
+                                  onClick={() => updateSubscriptionStatus(person.id, "pause")}
+                                  disabled={statusLoading}
+                                  className="inline-flex items-center rounded-lg bg-blue-100 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  {statusLoading ? "Updating..." : "Pause"}
+                                </button>
+                              )}
+                              {!isCanceled && (
+                                <button
+                                  onClick={() => updateSubscriptionStatus(person.id, "cancel")}
+                                  disabled={statusLoading}
+                                  className="inline-flex items-center rounded-lg bg-red-100 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  {statusLoading ? "Updating..." : "Cancel"}
+                                </button>
+                              )}
+                              {(isPaused || isCanceled) && (
+                                <button
+                                  onClick={() => updateSubscriptionStatus(person.id, "reactivate")}
+                                  disabled={statusLoading}
+                                  className="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-xs font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                >
+                                  {statusLoading ? "Updating..." : "Reactivate"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
