@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import LoadingState from "@/components/LoadingState";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -152,10 +153,22 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-2xl p-8 mb-8 shadow-sm">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {profile?.full_name}! 👋
-          </h1>
-          <p className="text-gray-600">Here’s your snack subscription status</p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Welcome back, {profile?.full_name}! 👋
+              </h1>
+              <p className="text-gray-600">
+                Here’s your snack subscription status
+              </p>
+            </div>
+            <Link
+              href="/profile"
+              className="inline-flex items-center justify-center self-start rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
+            >
+              Manage your profile
+            </Link>
+          </div>
         </div>
 
         {dataError && (

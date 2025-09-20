@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import LoadingState from "@/components/LoadingState";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -291,23 +292,31 @@ export default function AdminPanel() {
               Manage members, keep payments in sync, and spotlight the newest treats.
             </p>
           </div>
-          <button
-            onClick={() => refreshAdminData()}
-            className="inline-flex items-center gap-2 self-start rounded-lg border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? (
-              <>
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-orange-200 border-t-orange-500" />
-                Refreshing
-              </>
-            ) : (
-              <>
-                <span aria-hidden>⟳</span>
-                Refresh data
-              </>
-            )}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Link
+              href="/profile"
+              className="inline-flex items-center justify-center rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
+            >
+              View profile
+            </Link>
+            <button
+              onClick={() => refreshAdminData()}
+              className="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition hover:border-orange-300 hover:text-orange-700"
+              disabled={isRefreshing}
+            >
+              {isRefreshing ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-orange-200 border-t-orange-500" />
+                  Refreshing
+                </>
+              ) : (
+                <>
+                  <span aria-hidden>⟳</span>
+                  Refresh data
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
