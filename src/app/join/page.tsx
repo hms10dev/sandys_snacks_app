@@ -16,6 +16,44 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  async function redirectBasedOnRole(userId?: string | null) {
+    let resolvedUserId = userId ?? null;
+
+    if (!resolvedUserId) {
+      const {
+        data: userData,
+        error: getUserError,
+      } = await supabase.auth.getUser();
+
+      if (getUserError) {
+        throw getUserError;
+      }
+
+      resolvedUserId = userData.user?.id ?? null;
+    }
+
+    if (!resolvedUserId) {
+      router.push("/dashboard");
+      return;
+    }
+
+    const {
+      data: profile,
+      error: profileError,
+    } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", resolvedUserId)
+      .maybeSingle();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    const destination = profile?.role === "admin" ? "/admin" : "/dashboard";
+    router.push(destination);
+  }
+
   async function handleSignUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -38,7 +76,8 @@ export default function AuthPage() {
       if (data.user && !data.user.email_confirmed_at) {
         setMessage("Check your email for a confirmation link!");
       } else {
-        router.push("/dashboard");
+        const userId = data.user?.id ?? data.session?.user?.id ?? null;
+        await redirectBasedOnRole(userId);
       }
     } catch (error: unknown) {
       const message =
@@ -57,14 +96,15 @@ export default function AuthPage() {
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: formData.email.trim(),
         password: formData.password,
       });
 
       if (error) throw error;
 
-      router.push("/dashboard");
+      const userId = data.user?.id ?? data.session?.user?.id ?? null;
+      await redirectBasedOnRole(userId);
     } catch (error: unknown) {
       const message =
         error instanceof Error

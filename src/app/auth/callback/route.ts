@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       error: selectError,
     } = await supabase
       .from("profiles")
-      .select("id")
+      .select("id, role")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -61,6 +61,8 @@ export async function GET(request: NextRequest) {
         "We couldn’t load your profile information. Please try again."
       );
     }
+
+    let profileRole = existingProfile?.role ?? null;
 
     if (!existingProfile) {
       const fallbackName =
@@ -88,12 +90,33 @@ export async function GET(request: NextRequest) {
           "Your profile could not be created. Please try signing in again."
         );
       }
+        const {
+        data: createdProfile,
+        error: fetchError,
+      } = await supabase
+        .from("profiles")
+        .select("id, role")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error("[auth/callback] Failed to load profile after creation", fetchError);
+        return redirectWithError(
+          requestUrl.origin,
+          "We couldn’t load your profile information. Please try again."
+        );
+      }
+
+      profileRole = createdProfile?.role ?? null;
     }
 
     const isRecovery = type === "recovery";
     const redirectPath = isRecovery
       ? "/auth/callback/magicLink?type=recovery"
-      : "/dashboard";
+        : profileRole === "admin"
+        ? "/admin"
+        : "/dashboard";
+
 
     return NextResponse.redirect(`${requestUrl.origin}${redirectPath}`);
   } catch (err) {
